@@ -1,0 +1,78 @@
+#!/bin/bash
+
+basedir=$(dirname $0)
+
+haveErrors=
+
+# Run a single unit test
+function run_unit_test
+{
+  local shell="$1"
+  local shellFlags="$2"
+  local file=$3
+  local options=$4
+
+  if ! type $shell >/dev/null 2>&1
+  then
+    echo "WARN: No shell $shell found. Skipping tests in Shell \"$shell $shellFlags\"" >&2
+    return
+  fi
+
+  local optionsIfAny=$options
+  if [[ -n $optionsIfAny ]]
+  then
+    if [[ $shell == "zsh" ]]
+    then
+      optionsIfAny="setopt $optionsIfAny"
+    else
+      optionsIfAny="shopt $optionsIfAny"
+    fi
+  else
+    optionsIfAny=":"
+  fi
+  if [[ ! -r $file ]]
+  then
+    echo "ERROR: Can't read file $file" >&2
+    haveErrors=yes
+    return 1
+  fi
+
+  echo "Testing: $file in Shell \"$shell $shellFlags\" with options: $options"
+  ( exec -a $file $shell $shellFlags $file )
+  if [[ $? -ne 0 ]]
+  then
+    echo "Failed exit ($?) in test $file under shell $shell with options $options" >&2
+    haveErrors=yes
+  fi
+  echo ; echo
+}
+
+DEFAULT_IFS=$IFS
+# For all test_*.sh files in the test/unit-tests dir:
+for file in $(find $basedir/tests/unit-tests -name test_\*.sh)
+do
+  IFS=
+  # FUNCTION_ARGZERO (and hence POSIX_ARGZERO) and SH_WORD_SPLIT interact with the test harness or shunit and can't be used.
+  # INTERACTIVE cannot be changed in a running zsh. We'll test for this by invoking zsh with -i below
+  # They can be covered in integration tests.
+  for zshOpts in "" "C_PRECEDENCES" "MULTIOS" "KSH_ZERO_SUBSCRIPT" "POSIX_IDENTIFIERS" "POSIX_STRINGS" "POSIX_TRAPS" "LOGIN" "PRIVILEGED"
+  do
+    # Run the test.
+    IFS="$DEFAULT_IFS" run_unit_test zsh "" $file $zshOpts
+  done
+  # Getting a TTYIN (stop due to terminal input) with the -i flag if we add it to the below loop. Needs investigation
+  for bashFlags in "" "-l"  # "-i"
+  do
+    # Run the test.
+    IFS="$DEFAULT_IFS" run_unit_test bash "$bashFlags" $file
+  done
+done
+IFS="$DEFAULT_IFS"
+
+if [[ -z $haveErrors ]]
+then
+  exit 0
+else
+  echo "Some tests failed. See above." >&2
+  exit 1
+fi

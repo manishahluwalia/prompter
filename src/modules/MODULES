@@ -1,0 +1,18 @@
+# This file lists the modules. Each module is defined on a single line as follows:
+#   module-name: module_source_file
+# "module-name" is the name of the module, as the user sees it and invokes it.
+#   Valid charactes are [A-Za-z0-9-_], the name should be at least 1 char long, and may not start with - or _
+# "module_source_file" is the paths of the source file, relative to the src/modules directory, that contains
+#   the source for the module. The file name cannot contain spaces
+#
+# Blank lines and lines beginning with # are ignored. Leading spaces are stripped from the lines
+
+string: mod_string.sh
+cwd: mod_cwd.sh
+read-only: mod_read_only.sh
+time: mod_time.sh
+root: mod_root.sh
+exit-code: mod_exit_code.sh
+term-title: mod_term_title.sh
+git: mod_git.sh
+virtualenv: mod_virtualenv.sh

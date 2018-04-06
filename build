@@ -1,0 +1,194 @@
+#!/bin/bash
+
+basedir=$(dirname $0)
+MODULES_FILE="$basedir/src/modules/MODULES"
+if [[ ! -r "$MODULES_FILE" ]]
+then
+  echo "ERROR: Need a readable MODULES file: $MODULES_FILE" >&2
+  exit 1
+fi
+if [[ ! -r "$basedir/VERSION" ]]
+then
+  echo "ERROR: Need a readable VERSION file at $basedir" >&2
+  exit 1
+fi
+PROMPTER_VERSION=$(cat "$basedir/VERSION")
+
+haveErrors=
+
+function includeFile
+{
+  file=$1
+  if [[ ! -r $file ]]
+  then
+    echo "ERROR: Can't read file $1" >&2
+    haveErrors=yes
+    return 1
+  fi
+
+  cat <<EOF
+
+
+##-- BEGIN INCLUDE FILE $file
+EOF
+
+  cat $file
+  echo
+  echo "##-- END INCLUDE FILE $file"
+}
+
+# Usage:
+#   prompter_test_module_source <MODULE-NAME> <MODULE-SOURCE-FILE>
+# Check that the module source file is "good"
+# 1. Can be sourced in from bash
+# 2. Defines the functions: prompter_mod_MODULE_NAME_{usage,short_desc,main}
+# 3. If it defines the array prompter_mod_MODULE_NAME_options, then every option
+#    in that array is uniquely named (after converting - to _)
+function prompter_test_module_source()
+{
+  local module=$1
+  local fileName=$2
+  local module_symbolicName=${module//-/_}
+
+  set -e
+  source $fileName
+
+  local haveErrors=
+
+  local name
+  name="prompter_mod_${module_symbolicName}_usage"
+  type=$(type $name 2>&-)
+  if [[ $type != "$name is a function"* ]]
+  then
+    echo "Module $module does not define a usage function: $name" >&2
+    haveErrors=yes
+  fi
+  name="prompter_mod_${module_symbolicName}_short_desc"
+  type=$(type $name 2>&-)
+  if [[ $type != "$name is a function"* ]]
+  then
+    echo "Module $module does not define a short_desc function: $name" >&2
+    haveErrors=yes
+  fi
+  name="prompter_mod_${module_symbolicName}_main"
+  type=$(type $name 2>&-)
+  if [[ $type != "$name is a function"* ]]
+  then
+    echo "Module $module does not define a main function: $name" >&2
+    haveErrors=yes
+  fi
+
+  local mod_options
+  eval mod_options=\(\"\${prompter_mod_${module_symbolicName}_options\[\@\]}\"\)
+  local spec
+  for spec in "${mod_options[@]}"
+  do
+    local s=${spec%:}
+    # First, check that the option name does not have any invalid characters in it
+    if [[ $s =~ ^[A-Za-z0-9][-_A-Za-z0-9]*$ ]]
+    then
+      # Good. Now let's see if there is any other option which maps to the same name
+      # once we convert - to _
+      # To check this, we store the real name of any option 'OPTION-NAME' in the global
+      # variable 'prompter_mod_MODULE_NAME_arg_OPTION_NAME'
+      local varName="prompter_mod_${module_symbolicName}_arg_${s//-/_}"
+      if eval [[ -n \"\$${varName}\" ]]
+      then
+        eval echo "Module \$module has multiple options that map to the same option name: \$s and \$${varName}" >&2
+        haveErrors=yes
+      fi
+      eval ${varName}=${s}
+    else
+      echo "Module $module has an invalid option named: $s" >&2
+      haveErrors=yes
+    fi
+  done
+
+  if [[ -n $haveErrors ]]
+  then
+    return 1
+  else
+    return 0
+  fi
+}
+
+# From this point onwards, everything written to stdout will
+# be sent to the prompter-sourceable output file
+exec > "$basedir/prompter-sourceable"
+
+# Write file header
+cat <<EOF
+##-- Created by $0 on $(date)
+
+EOF
+
+echo "PROMPTER_VERSION=$PROMPTER_VERSION"
+
+# Include main routines
+includeFile "$basedir/src/core.sh"
+echo ; echo
+
+# Read the 'MODULES' file one line at a time
+while read line || [[ -n "$line" ]]
+do
+  # Ignore empty lines and lines beginning with # (initial whitespace is stripped by read)
+  if [[ ! $line == "#"* && -n "$line" ]]
+  then
+    module=${line%:*}
+    if [[ ! "$module" =~ ^[A-Za-z0-9][-_A-Za-z0-9]*$ ]]
+    then
+      echo "Module: $module has an invalid name" >&2
+      haveErrors=yes
+      continue
+    fi
+    varName=mod_${module//-/_}_friendlyName
+    prevName=$(eval echo \$${varName})
+    if [[ -n "$prevName" ]]
+    then
+      echo "Module $module conflicts with module $prevName: Both have the same symbolic name (- changed to _)" >&2
+      haveErrors=yes
+    else
+      eval ${varName}=\"\$module\"
+
+      # Get the name of the module's source file
+      fileName=${line/*:/}
+      fileName=${fileName// /} # Remove all spaces from the fileName (better not have internal spaces!)
+      # Find absolute fileName
+      fileName="$basedir/src/modules/$fileName"
+
+      # Test the module source file
+      if [[ ! -r $fileName ]]
+      then
+        echo "Can't read file $fileName for module $module. Ignored." >&2
+        haveErrors=yes
+      elif ! ( prompter_test_module_source $module $fileName )
+      then
+        echo "Module $module has errors. Ignored." >&2
+        haveErrors=yes
+      else
+        echo; echo; echo; echo "##-- BEGIN MODULE $module"
+        includeFile "$fileName"
+
+        echo ; echo
+        echo "prompter_modules+=(\"$module\")"
+        echo; echo; echo "##-- END MODULE $module"
+      fi
+    fi
+  fi
+done < $MODULES_FILE
+
+if [[ -z $haveErrors ]]
+then
+  exec >&-
+  exec > "$basedir/prompter"
+  echo "#!/bin/bash"
+  echo
+  cat "$basedir/prompter-sourceable"
+  echo
+  echo 'prompter "$@"'
+  exec >&-
+  chmod a+rx "$basedir/prompter"
+  exit 0
+else
+  exit 1
+fi
