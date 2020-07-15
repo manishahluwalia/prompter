@@ -58,7 +58,7 @@ EOF
 # Wrapper around git binary to setup environment
 function prompter_mod_git_exec_git()
 {
-  env -i LANG=C HOME=$HOME PATH=$PATH git "$@" 2>&1
+  env -i LANG=C HOME="$HOME" PATH="$PATH" git "$@" 2>&1
   return $?
 }
 
