@@ -59,7 +59,7 @@ prompter_mod_git_arg_conflicted_bg_color=28411
 # Tests!
 
 # These tests were generated as follows:
-# Manually, a git repo was reated. Several operations were performed manually
+# Manually, a git repo was created. Several operations were performed manually
 # After each, the git status and git describe output was captured and stored
 # These were used to create the skeletons for the tests, including the mocked
 # values for the git outputs. The rest of the logic was then filled in by hand.
